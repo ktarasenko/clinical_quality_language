@@ -1,15 +1,29 @@
 package org.cqframework.fhir.npm;
 
+import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 
 import java.io.IOException;
 import java.io.InputStream;
 
+import java.util.Arrays;
+import java.util.List;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import org.hl7.cql.model.ModelIdentifier;
 import org.hl7.elm.r1.VersionedIdentifier;
 import org.hl7.elm_modelinfo.r1.ModelInfo;
+import org.hl7.fhir.exceptions.FHIRException;
 import org.hl7.fhir.r5.context.IWorkerContext;
+import org.hl7.fhir.r5.model.Enumerations.FHIRVersion;
+import org.hl7.fhir.r5.model.Enumerations.PublicationStatus;
+import org.hl7.fhir.r5.model.ImplementationGuide;
+import org.hl7.fhir.r5.model.ImplementationGuide.ImplementationGuideDependsOnComponent;
+import org.hl7.fhir.utilities.npm.BasePackageCacheManager;
+import org.hl7.fhir.utilities.npm.NpmPackage;
+import org.hl7.fhir.utilities.npm.PackageGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.annotations.Ignore;
@@ -94,6 +108,58 @@ public class NpmPackageManagerTests implements IWorkerContext.ILoggingService {
         assertNotNull(mi);
         assertTrue(mi.getName().equals("QICore"));
     }
+
+  @Test
+  public void TestNestedDependencies() throws IOException {
+    ImplementationGuide ig = new ImplementationGuide()
+        .setPackageId("test.source")
+        .addDependsOn(new ImplementationGuideDependsOnComponent()
+            .setPackageId("test.dep1").setVersion("1.0.0"))
+        .addDependsOn(new ImplementationGuideDependsOnComponent()
+            .setPackageId("test.dep2").setVersion("1.0.0"));
+
+    NpmPackageManager pm = new NpmPackageManager(ig, "4.0.1", new FakePackageManager());
+
+    List<String> packageNames = pm.getNpmList().stream().map(NpmPackage::name)
+        .collect(Collectors.toList());
+    List<String> expectedDependencies = Arrays.asList("hl7.fhir.r4.core", "test.dep1", "test.dep3",
+        "test.dep2", "test.dep4");
+    assertEquals(packageNames.toString(), expectedDependencies.toString());
+
+  }
+
+  private static class FakePackageManager extends BasePackageCacheManager {
+
+    @Override
+    public NpmPackage loadPackageFromCacheOnly(String id, @Nullable String version)
+        throws IOException {
+      return loadPackage(id, version);
+    }
+
+    @Override
+    public NpmPackage addPackageToCache(String id, String version,
+        InputStream packageTgzInputStream, String sourceDesc) throws IOException {
+      return loadPackage(id, version);
+    }
+
+    @Override
+    public NpmPackage loadPackage(String id, String version) throws FHIRException, IOException {
+      PackageGenerator packageGenerator = new PackageGenerator().name(id).version(version);
+      switch (id) {
+        case "test.dep1":
+          return NpmPackage.empty(packageGenerator.dependency("test.dep3", version));
+        case "test.dep2":
+          return NpmPackage.empty(packageGenerator.dependency("test.dep4", version));
+        default:
+          return NpmPackage.empty(packageGenerator);
+      }
+    }
+
+    @Override
+    public String getPackageUrl(String packageId) throws IOException {
+      return String.format("http://%s/ImplmentationGuide/", packageId);
+    }
+  }
 
     @Override
     public void logMessage(String msg) {

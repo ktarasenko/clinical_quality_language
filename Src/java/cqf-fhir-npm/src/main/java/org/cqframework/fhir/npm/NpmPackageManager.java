@@ -15,18 +15,20 @@ import org.hl7.fhir.convertors.advisors.impl.BaseAdvisor_40_50;
 import org.hl7.fhir.convertors.conv40_50.VersionConvertor_40_50;
 import org.hl7.fhir.exceptions.FHIRException;
 import org.hl7.fhir.r4.formats.FormatUtilities;
+import org.hl7.fhir.r5.model.ImplementationGuide;
 import org.hl7.fhir.r5.context.IWorkerContext;
 import org.hl7.fhir.r5.model.Constants;
-import org.hl7.fhir.r5.model.ImplementationGuide;
+import org.hl7.fhir.r5.model.ImplementationGuide.ImplementationGuideDependsOnComponent;
 import org.hl7.fhir.utilities.Utilities;
 import org.hl7.fhir.utilities.VersionUtilities;
 import org.hl7.fhir.utilities.json.JsonTrackingParser;
+import org.hl7.fhir.utilities.npm.BasePackageCacheManager;
 import org.hl7.fhir.utilities.npm.FilesystemPackageCacheManager;
 import org.hl7.fhir.utilities.npm.NpmPackage;
 import org.hl7.fhir.utilities.npm.ToolsVersion;
 
 public class NpmPackageManager implements IWorkerContext.ILoggingService {
-    private FilesystemPackageCacheManager pcm;
+    private BasePackageCacheManager pcm;
     private List<NpmPackage> npmList = new ArrayList<>();
     public List<NpmPackage> getNpmList() {
         return npmList;
@@ -58,7 +60,7 @@ public class NpmPackageManager implements IWorkerContext.ILoggingService {
         return new NpmPackageManager((ImplementationGuide) versionConvertor_40_50.convertResource(FormatUtilities.loadFile(is)), version);
     }
 
-    public NpmPackageManager(ImplementationGuide sourceIg, String version) throws IOException {
+    NpmPackageManager(ImplementationGuide sourceIg, String version, BasePackageCacheManager pcm) throws IOException {
         if (version == null || version.equals("")) {
             throw new IllegalArgumentException("version is required");
         }
@@ -71,15 +73,7 @@ public class NpmPackageManager implements IWorkerContext.ILoggingService {
 
         this.sourceIg = sourceIg;
 
-        try {
-            // userMode indicates whether the packageCache is within the working directory or in the user home
-            pcm = new FilesystemPackageCacheManager(true, ToolsVersion.TOOLS_VERSION);
-        }
-        catch(IOException e) {
-            String message = "error creating the FilesystemPackageCacheManager";
-            logMessage(message);
-            throw new NpmPackageManagerException(message, e);
-        }
+        this.pcm = pcm;
 
         loadCorePackage();
 
@@ -90,6 +84,22 @@ public class NpmPackageManager implements IWorkerContext.ILoggingService {
         }
     }
 
+
+    public NpmPackageManager(ImplementationGuide sourceIg, String version) throws IOException {
+        this(sourceIg, version, createPackageManager());
+    }
+
+    private static FilesystemPackageCacheManager createPackageManager() {
+        try {
+            // userMode indicates whether the packageCache is within the working directory or in the user home
+            return new FilesystemPackageCacheManager(true, ToolsVersion.TOOLS_VERSION);
+        }
+        catch(IOException e) {
+            String message = "error creating the FilesystemPackageCacheManager";
+            throw new NpmPackageManagerException(message, e);
+        }
+    }
+
     private void loadCorePackage() {
         NpmPackage pi = null;
 
@@ -97,13 +107,13 @@ public class NpmPackageManager implements IWorkerContext.ILoggingService {
 
         logMessage("Core Package "+ VersionUtilities.packageForVersion(v)+"#"+v);
         try {
-            pi = pcm.loadPackage(VersionUtilities.packageForVersion(v), v);       
+            pi = pcm.loadPackage(VersionUtilities.packageForVersion(v), v);
         }
         catch(Exception e) {
             try {
                 // Appears to be race condition in FHIR core where they are
                 // loading a custom cert provider.
-                pi = pcm.loadPackage(VersionUtilities.packageForVersion(v), v);   
+                pi = pcm.loadPackage(VersionUtilities.packageForVersion(v), v);
             }
             catch (Exception ex) {
                 throw new NpmPackageManagerException("Error loading core package", e);
@@ -160,6 +170,12 @@ public class NpmPackageManager implements IWorkerContext.ILoggingService {
                 logMessage("The correct canonical URL for this dependency is "+cu);
             }
         }
+        // for (String dependency: pi.dependencies()) {
+        //    String[] depParts = dependency.split("#");
+        //    String depName = depParts[0];
+        //    String depVersion = depParts[1];
+        //    loadIg(new ImplementationGuideDependsOnComponent().setPackageId(depName).setVersion(depVersion), -1);
+        // }
     }
 
     private String determineCanonical(String url, String path) throws FHIRException {

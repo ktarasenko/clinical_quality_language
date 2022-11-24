@@ -3497,6 +3497,7 @@ DATETIME
         return result;
     }
 
+    @SuppressWarnings("unchecked")
     private Retrieve buildRetrieve(cqlParser.RetrieveContext ctx, boolean useStrictRetrieveTyping, NamedType namedType,
                                    ClassType classType, String codePath, String codeComparator, Property property,
                                    DataType propertyType, Exception propertyException, Expression terminology) {
